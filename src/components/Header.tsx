@@ -2,6 +2,7 @@ import React from 'react';
 import { 
   Wifi, 
   WifiOff,
+  Network,
   Activity, 
   Lightbulb, 
   BookOpen, 
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
-export type ActiveTab = 'analyzer' | 'speedtest' | 'recommendations' | 'report' | 'knowledge';
+export type ActiveTab = 'analyzer' | 'scanner' | 'speedtest' | 'recommendations' | 'report' | 'knowledge';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -44,6 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const navItems: { id: ActiveTab; label: string; mobileLabel: string; icon: React.ReactNode }[] = [
     { id: 'analyzer', label: 'Анализатор', mobileLabel: 'Эфир', icon: <Wifi className="w-4 h-4" /> },
+    { id: 'scanner', label: 'Сканер сети', mobileLabel: 'Сканер', icon: <Network className="w-4 h-4" /> },
     { id: 'speedtest', label: 'Спидтест', mobileLabel: 'Скорость', icon: <Activity className="w-4 h-4" /> },
     { id: 'recommendations', label: 'Советы', mobileLabel: 'Аудит', icon: <Lightbulb className="w-4 h-4" /> },
     { id: 'report', label: 'Отчёт для ТП', mobileLabel: 'Отчёт', icon: <FileText className="w-4 h-4" /> },
@@ -182,23 +184,23 @@ export const Header: React.FC<HeaderProps> = ({
       </header>
 
       {/* Mobile Sticky Bottom Navigation Bar (Android Phone Thumb Navigation) */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 pb-safe shadow-2xl px-1 py-1 flex items-center justify-between">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 pb-safe shadow-2xl px-0.5 py-1 flex items-center justify-between">
         {navItems.map(item => {
           const active = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
+              className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
                 active
                   ? 'text-cyan-400 font-bold'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <div className={`p-1 rounded-lg ${active ? 'bg-cyan-500/15 scale-110' : ''}`}>
+              <div className={`p-1 rounded-lg ${active ? 'bg-cyan-500/15 scale-105' : ''}`}>
                 {item.icon}
               </div>
-              <span className="text-[9px] sm:text-[10px] mt-0.5 tracking-tight leading-none text-center truncate max-w-full">
+              <span className="text-[9px] mt-0.5 tracking-tight leading-none text-center truncate max-w-full">
                 {item.mobileLabel}
               </span>
             </button>
@@ -208,13 +210,13 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Mobile Router Web Button (Direct Gateway 192.168.1.1) */}
         <button
           onClick={onOpenRouterWeb}
-          className="flex-1 flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer text-indigo-400 hover:text-indigo-300 active:scale-95"
+          className="flex-1 min-w-0 flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer text-indigo-400 hover:text-indigo-300 active:scale-95"
           title="Открыть веб-интерфейс роутера (шлюз 192.168.1.1)"
         >
           <div className="p-1 rounded-lg bg-indigo-500/15">
             <Router className="w-4 h-4 text-indigo-400" />
           </div>
-          <span className="text-[9px] sm:text-[10px] mt-0.5 tracking-tight leading-none font-semibold text-center truncate max-w-full">
+          <span className="text-[9px] mt-0.5 tracking-tight leading-none font-semibold text-center truncate max-w-full">
             Роутер
           </span>
         </button>

@@ -5,6 +5,7 @@ import { SpeedtestDashboard } from './components/SpeedtestDashboard';
 import { RecommendationsView } from './components/RecommendationsView';
 import { KnowledgeBaseView } from './components/KnowledgeBaseView';
 import { SupportReportView } from './components/SupportReportView';
+import { LanScannerView } from './components/LanScannerView';
 import { NetworkStatusGuard } from './components/NetworkStatusGuard';
 import { DonateModal } from './components/DonateModal';
 import { WifiAccuracyDisclaimer } from './components/WifiAccuracyDisclaimer';
@@ -92,6 +93,14 @@ export default function App() {
             <WifiAnalyzerView 
               networks={visibleNetworks} 
               onNavigateToRouter={handleOpenRouter}
+              isCellular={isCellular}
+            />
+          )}
+
+          {activeTab === 'scanner' && (
+            <LanScannerView 
+              gatewayIp="192.168.1.1"
+              isWifiConnected={isWifiConnected}
               isCellular={isCellular}
             />
           )}
