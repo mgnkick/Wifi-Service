@@ -152,11 +152,11 @@ export const LanScannerView: React.FC<LanScannerViewProps> = ({
     return devices.filter(dev => {
       // Category filter
       if (selectedCategory !== 'all') {
+        if (selectedCategory === 'pc' && dev.category !== 'pc') return false;
+        if (selectedCategory === 'phone' && dev.category !== 'phone') return false;
         if (selectedCategory === 'router' && dev.category !== 'router') return false;
         if (selectedCategory === 'tv' && dev.category !== 'tv') return false;
-        if (selectedCategory === 'nas' && dev.category !== 'nas') return false;
-        if (selectedCategory === 'pc_phone' && dev.category !== 'pc' && dev.category !== 'phone') return false;
-        if (selectedCategory === 'camera_iot' && dev.category !== 'camera' && dev.category !== 'iot' && dev.category !== 'printer') return false;
+        if (selectedCategory === 'printer_iot' && dev.category !== 'printer' && dev.category !== 'iot' && dev.category !== 'camera') return false;
       }
 
       // Search filter
@@ -178,11 +178,11 @@ export const LanScannerView: React.FC<LanScannerViewProps> = ({
   const categoryCounts = useMemo(() => {
     const counts = {
       all: devices.length,
+      pc: devices.filter(d => d.category === 'pc').length,
+      phone: devices.filter(d => d.category === 'phone').length,
       router: devices.filter(d => d.category === 'router').length,
       tv: devices.filter(d => d.category === 'tv').length,
-      nas: devices.filter(d => d.category === 'nas').length,
-      pc_phone: devices.filter(d => d.category === 'pc' || d.category === 'phone').length,
-      camera_iot: devices.filter(d => d.category === 'camera' || d.category === 'iot' || d.category === 'printer').length,
+      printer_iot: devices.filter(d => d.category === 'printer' || d.category === 'iot' || d.category === 'camera').length,
     };
     return counts;
   }, [devices]);
@@ -351,11 +351,11 @@ export const LanScannerView: React.FC<LanScannerViewProps> = ({
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             {[
               { id: 'all', label: 'Все', count: categoryCounts.all },
+              { id: 'pc', label: 'Компьютеры', count: categoryCounts.pc },
+              { id: 'phone', label: 'Смартфоны', count: categoryCounts.phone },
               { id: 'router', label: 'Роутеры', count: categoryCounts.router },
               { id: 'tv', label: 'Smart TV', count: categoryCounts.tv },
-              { id: 'nas', label: 'NAS / Серверы', count: categoryCounts.nas },
-              { id: 'pc_phone', label: 'ПК и телефоны', count: categoryCounts.pc_phone },
-              { id: 'camera_iot', label: 'Камеры / IoT', count: categoryCounts.camera_iot },
+              { id: 'printer_iot', label: 'Принтеры и IoT', count: categoryCounts.printer_iot },
             ].map(tab => (
               <button
                 key={tab.id}

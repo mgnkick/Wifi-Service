@@ -42,12 +42,15 @@ interface WifiAnalyzerViewProps {
   isCellular?: boolean;
 }
 
+type AnalyzerBand = 'all' | '2.4GHz' | '5GHz' | '6GHz';
+
 export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({ 
   networks,
   onNavigateToRouter,
   isCellular = false,
 }) => {
-  const [selectedBand, setSelectedBand] = useState<WifiBand>('2.4GHz');
+  const [selectedBand, setSelectedBand] = useState<AnalyzerBand>('all');
+  const [spectrumBand, setSpectrumBand] = useState<WifiBand>('2.4GHz');
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSecurity, setFilterSecurity] = useState<string>('all');
@@ -105,10 +108,21 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
     return classifyWifiNetworks(networks);
   }, [networks]);
 
-  // Filter networks by band and search query
+  // Filter networks by band: 'all' includes all bands
   const bandNetworks = useMemo(() => {
+    if (selectedBand === 'all') return classifiedAllNetworks;
     return classifiedAllNetworks.filter(n => n.band === selectedBand);
   }, [classifiedAllNetworks, selectedBand]);
+
+  // Active band for the spectrum diagram
+  const activeSpectrumBand: WifiBand = selectedBand === 'all'
+    ? spectrumBand
+    : (selectedBand === '6GHz' ? '2.4GHz' : selectedBand);
+
+  // Networks plotted on the spectrum curve
+  const spectrumNetworks = useMemo(() => {
+    return classifiedAllNetworks.filter(n => n.band === activeSpectrumBand);
+  }, [classifiedAllNetworks, activeSpectrumBand]);
 
   const filteredNetworks = useMemo(() => {
     let result = bandNetworks.filter(n => {
@@ -141,7 +155,11 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
 
   // Hierarchical SSID groups (shows all nodes of an SSID across bands)
   const filteredSsidGroups = useMemo(() => {
-    const allFiltered = classifiedAllNetworks.filter(n => {
+    const sourceNets = selectedBand === 'all' 
+      ? classifiedAllNetworks 
+      : classifiedAllNetworks.filter(n => n.band === selectedBand);
+
+    const allFiltered = sourceNets.filter(n => {
       const matchesSearch = n.ssid.toLowerCase().includes(searchQuery.toLowerCase()) ||
         n.bssid.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (n.vendor && n.vendor.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -161,12 +179,12 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
     });
 
     return groupNetworksBySsid(allFiltered);
-  }, [classifiedAllNetworks, searchQuery, filterSecurity, filterRole]);
+  }, [classifiedAllNetworks, selectedBand, searchQuery, filterSecurity, filterRole]);
 
-  // Channel ratings
+  // Channel ratings for the active spectrum diagram band
   const channelRatings = useMemo(() => {
-    return analyzeChannels(networks, selectedBand);
-  }, [networks, selectedBand]);
+    return analyzeChannels(networks, activeSpectrumBand);
+  }, [networks, activeSpectrumBand]);
 
   const recommendedChannel = channelRatings.find(r => r.isRecommended);
 
@@ -308,20 +326,20 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-slate-900/60 dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-800 backdrop-blur-sm">
         
         {/* Band Switcher Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-800/80 rounded-xl border border-slate-700/60">
-          {(['2.4GHz', '5GHz', '6GHz'] as WifiBand[]).map(band => (
+        <div className="flex items-center gap-1.5 p-1 bg-slate-800/80 rounded-xl border border-slate-700/60 overflow-x-auto scrollbar-none">
+          {(['all', '2.4GHz', '5GHz', '6GHz'] as (AnalyzerBand)[]).map(band => (
             <button
               key={band}
               onClick={() => setSelectedBand(band)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                 selectedBand === band
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/25'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
               }`}
             >
-              {band}
+              {band === 'all' ? 'Все диапазоны' : band}
               <span className="ml-1.5 opacity-75 text-[10px]">
-                ({networks.filter(n => n.band === band).length})
+                ({band === 'all' ? networks.length : networks.filter(n => n.band === band).length})
               </span>
             </button>
           ))}
@@ -361,14 +379,40 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
               </span>
             </div>
             
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex items-center gap-2.5">
               <Wifi className="w-5 h-5 text-cyan-400 shrink-0" />
-              <div className="truncate">
-                <div className="font-bold text-slate-100 truncate text-base">
-                  {connectedNet ? connectedNet.ssid : 'Не подключено'}
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-slate-100 truncate text-base flex items-center gap-2">
+                  <span className="truncate">{connectedNet ? connectedNet.ssid : 'Не подключено'}</span>
+                  {connectedNet && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = prompt('Укажите имя вашей сети (SSID):', connectedNet.ssid);
+                        if (val && val.trim()) {
+                          wifiScanner.updateConnectedSsid(val.trim());
+                        }
+                      }}
+                      className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold underline shrink-0 cursor-pointer"
+                      title="Задать реальное имя сети (SSID)"
+                    >
+                      [Изменить SSID]
+                    </button>
+                  )}
                 </div>
-                <div className="text-xs text-slate-400 font-mono truncate">
-                  {connectedNet ? connectedNet.bssid : '—'} • {connectedNet ? connectedNet.standard : ''}
+                <div className="text-xs text-slate-400 font-mono truncate flex items-center gap-1.5 mt-0.5">
+                  <span>BSSID: {connectedNet ? connectedNet.bssid : '—'}</span>
+                  {connectedNet && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopyBssid(connectedNet.bssid, e)}
+                      className="p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                      title="Скопировать BSSID"
+                    >
+                      {copiedBssid === connectedNet.bssid ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  )}
+                  <span>• {connectedNet ? connectedNet.standard : ''}</span>
                 </div>
               </div>
             </div>
@@ -541,7 +585,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
 
               {onNavigateToRouter && (
                 <button
-                  onClick={() => onNavigateToRouter(selectedBand)}
+                  onClick={() => onNavigateToRouter(activeSpectrumBand)}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                 >
                   <Router className="w-3.5 h-3.5" />
@@ -559,10 +603,34 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
       <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 space-y-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div>
-            <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-              <Radio className="w-4 h-4 text-cyan-400" />
-              <span>Спектральный график каналов и перекрытия ({selectedBand})</span>
-            </h3>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
+                <Radio className="w-4 h-4 text-cyan-400" />
+                <span>Спектральный график каналов и перекрытия ({activeSpectrumBand})</span>
+              </h3>
+              {selectedBand === 'all' && (
+                <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setSpectrumBand('2.4GHz')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                      activeSpectrumBand === '2.4GHz' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    2.4G
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSpectrumBand('5GHz')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                      activeSpectrumBand === '5GHz' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    5G
+                  </button>
+                </div>
+              )}
+            </div>
             <p className="text-xs text-slate-400 mt-0.5">
               Высота купола — мощность сигнала (dBm), ширина — полоса пропускания (МГц). Пересечения показывают коллизии.
             </p>
@@ -623,7 +691,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
             <rect x={paddingX} y={dbmToY(-85)} width={3} height={dbmToY(-75) - dbmToY(-85)} fill="#ef4444" opacity="0.6" />
 
             {/* Non-overlapping channel highlight vertical bands on 2.4 GHz */}
-            {selectedBand === '2.4GHz' && NON_OVERLAPPING_2_4GHZ.map(ch => {
+            {activeSpectrumBand === '2.4GHz' && NON_OVERLAPPING_2_4GHZ.map(ch => {
               const x = channelPositions.map.get(ch);
               if (x === undefined) return null;
               return (
@@ -653,7 +721,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
             {channelRatings.map(cr => {
               const x = channelPositions.map.get(cr.channel);
               if (x === undefined) return null;
-              const isNonOverlap = selectedBand === '2.4GHz' && NON_OVERLAPPING_2_4GHZ.includes(cr.channel);
+              const isNonOverlap = activeSpectrumBand === '2.4GHz' && NON_OVERLAPPING_2_4GHZ.includes(cr.channel);
 
               return (
                 <g key={`tick_${cr.channel}`}>
@@ -690,7 +758,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
             })}
 
             {/* Network Parabolic Bell Curves */}
-            {bandNetworks.map((net, idx) => {
+            {spectrumNetworks.map((net, idx) => {
               const centerX = channelPositions.map.get(net.channel);
               if (centerX === undefined) return null;
 
@@ -700,7 +768,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
 
               // Channel width on chart in pixels
               const widthRatio = net.channelWidth / 20;
-              const halfWidthPx = (selectedBand === '2.4GHz' ? 36 : 28) * Math.sqrt(widthRatio);
+              const halfWidthPx = (activeSpectrumBand === '2.4GHz' ? 36 : 28) * Math.sqrt(widthRatio);
 
               const leftX = centerX - halfWidthPx;
               const rightX = centerX + halfWidthPx;
@@ -786,7 +854,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
           </div>
 
           <div className="text-[11px] text-slate-500">
-            Отображается сетей в спектре: {bandNetworks.length}
+            Отображается в спектре ({activeSpectrumBand}): {spectrumNetworks.length} сетей (Всего в эфире: {networks.length})
           </div>
         </div>
 
@@ -1152,7 +1220,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
                       {/* BSSID and Vendor with Copy Button */}
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-xs text-slate-300 font-mono">
-                          {net.bssid}
+                          BSSID: {net.bssid}
                         </span>
                         <button
                           type="button"
