@@ -1,0 +1,241 @@
+import { Network, ConnectionStatus } from '@capacitor/network';
+import { Device, DeviceInfo } from '@capacitor/device';
+import { Capacitor } from '@capacitor/core';
+import { AppLauncher } from '@capacitor/app-launcher';
+
+export interface AndroidSystemStatus {
+  isAndroid: boolean;
+  deviceModel: string;
+  osVersion: string;
+  platform: string;
+  isOnline: boolean;
+  connectionType: 'wifi' | 'cellular' | 'none' | 'unknown';
+  hasLocationPermission: boolean | 'prompt' | 'denied';
+  isLocationAvailable: boolean;
+}
+
+class AndroidSystemService {
+  private lastStatus: AndroidSystemStatus = {
+    isAndroid: false,
+    deviceModel: 'Устройство',
+    osVersion: '',
+    platform: 'web',
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    connectionType: 'unknown',
+    hasLocationPermission: 'prompt',
+    isLocationAvailable: false,
+  };
+
+  private listeners: ((status: AndroidSystemStatus) => void)[] = [];
+
+  constructor() {
+    this.init();
+  }
+
+  private async init() {
+    try {
+      // 1. Device Info
+      const info: DeviceInfo = await Device.getInfo();
+      const isAndroid = info.platform === 'android' || /android/i.test(navigator.userAgent);
+      
+      this.lastStatus.isAndroid = isAndroid;
+      this.lastStatus.deviceModel = info.model || (isAndroid ? 'Android-смартфон' : 'Браузер');
+      this.lastStatus.osVersion = info.osVersion || (info.operatingSystem ? `${info.operatingSystem}` : '');
+      this.lastStatus.platform = info.platform;
+
+      // 2. Network Status
+      const netStatus: ConnectionStatus = await Network.getStatus();
+      this.lastStatus.isOnline = netStatus.connected;
+      this.lastStatus.connectionType = netStatus.connectionType as any;
+
+      // Listen for network changes
+      Network.addListener('networkStatusChange', (status: ConnectionStatus) => {
+        this.lastStatus.isOnline = status.connected;
+        this.lastStatus.connectionType = status.connectionType as any;
+        this.notify();
+      });
+
+      // 3. Permission check
+      if ('permissions' in navigator && (navigator as any).permissions.query) {
+        try {
+          const perm = await (navigator as any).permissions.query({ name: 'geolocation' });
+          this.lastStatus.hasLocationPermission = perm.state === 'granted';
+          perm.onchange = () => {
+            this.lastStatus.hasLocationPermission = perm.state === 'granted';
+            this.notify();
+          };
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // fallback
+      this.lastStatus.isOnline = navigator.onLine;
+    }
+
+    this.notify();
+  }
+
+  public getStatus(): AndroidSystemStatus {
+    return { ...this.lastStatus, isOnline: navigator.onLine };
+  }
+
+  public subscribe(cb: (status: AndroidSystemStatus) => void): () => void {
+    this.listeners.push(cb);
+    cb(this.getStatus());
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== cb);
+    };
+  }
+
+  private notify() {
+    const s = this.getStatus();
+    this.listeners.forEach(cb => cb(s));
+  }
+
+  /**
+   * Request system permission (e.g. Geolocation required by Android for Wi-Fi scanning)
+   */
+  public async requestLocationPermission(): Promise<boolean> {
+    return new Promise(resolve => {
+      if (!('geolocation' in navigator)) {
+        resolve(false);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        () => {
+          this.lastStatus.hasLocationPermission = true;
+          this.lastStatus.isLocationAvailable = true;
+          this.notify();
+          resolve(true);
+        },
+        () => {
+          this.lastStatus.hasLocationPermission = 'denied';
+          this.notify();
+          resolve(false);
+        },
+        { timeout: 8000, enableHighAccuracy: true }
+      );
+    });
+  }
+
+  /**
+   * Detect real local private IP via WebRTC ICE candidate gathering
+   */
+  public async getLocalLanIp(): Promise<string | null> {
+    return new Promise(resolve => {
+      try {
+        const RTCPC = window.RTCPeerConnection || (window as any).webkitRTCPeerConnection;
+        if (!RTCPC) {
+          resolve(null);
+          return;
+        }
+
+        const pc = new RTCPC({ iceServers: [] });
+        let resolved = false;
+
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            try { pc.close(); } catch {}
+            resolve(null);
+          }
+        }, 1200);
+
+        pc.createDataChannel('');
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            resolve(null);
+          }
+        });
+
+        pc.onicecandidate = (event) => {
+          if (!event || !event.candidate) return;
+          const candidateStr = event.candidate.candidate;
+          const ipMatch = candidateStr.match(/(?:192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[0-1])\.\d+\.\d+)/);
+          if (ipMatch && !resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            try { pc.close(); } catch {}
+            resolve(ipMatch[0]);
+          }
+        };
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  /**
+   * Probe standard local router gateways to verify physical Wi-Fi/LAN reachability
+   */
+  public async probeLocalGateway(): Promise<string | null> {
+    const commonGateways = ['192.168.1.1', '192.168.0.1', '192.168.31.1', '192.168.8.1', '192.168.100.1', '10.0.0.1'];
+    for (const gw of commonGateways) {
+      try {
+        const start = performance.now();
+        await fetch(`http://${gw}/favicon.ico?_t=${Date.now()}`, {
+          method: 'HEAD',
+          mode: 'no-cors',
+          signal: AbortSignal.timeout(600),
+        });
+        const elapsed = performance.now() - start;
+        if (elapsed < 500) {
+          return gw;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  /**
+   * Fire an Android intent to open system settings screen
+   */
+  private launchIntent(intentAction: string): void {
+    const intentUrl = `intent:#Intent;action=${intentAction};category=android.intent.category.DEFAULT;end`;
+
+    // 1. If running natively inside Capacitor APK
+    if (Capacitor.isNativePlatform()) {
+      try {
+        AppLauncher.openUrl({ url: intentUrl }).catch(() => {});
+      } catch {}
+    }
+
+    // 2. Direct DOM anchor click (recognized by Android Chrome / WebView)
+    try {
+      const link = document.createElement('a');
+      link.href = intentUrl;
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try { document.body.removeChild(link); } catch {}
+      }, 200);
+    } catch {}
+  }
+
+  /**
+   * Open Android Wi-Fi settings via native intent
+   */
+  public openWifiSettings(): void {
+    this.launchIntent('android.settings.WIFI_SETTINGS');
+  }
+
+  /**
+   * Open Android Location (GPS) settings via native intent
+   */
+  public openLocationSettings(): void {
+    this.launchIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+  }
+
+  /**
+   * Open Android VPN settings via native intent
+   */
+  public openVpnSettings(): void {
+    this.launchIntent('android.settings.VPN_SETTINGS');
+  }
+}
+
+export const androidSystem = new AndroidSystemService();

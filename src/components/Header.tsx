@@ -12,7 +12,8 @@ import {
   Heart,
   Smartphone,
   Router,
-  Wrench
+  Wrench,
+  ShieldAlert
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
@@ -28,6 +29,7 @@ interface HeaderProps {
   connectedSignalDbm?: number;
   isWifiConnected?: boolean;
   isCellular?: boolean;
+  isVpn?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   connectedSignalDbm,
   isWifiConnected = true,
   isCellular = false,
+  isVpn = false,
 }) => {
   const { theme, toggleTheme } = useTheme();
 
@@ -148,6 +151,14 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
 
+              {/* VPN Indicator Badge if active */}
+              {isVpn && (
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[11px] font-bold animate-pulse shadow-sm shadow-indigo-500/30">
+                  <ShieldAlert className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>VPN</span>
+                </div>
+              )}
+
               {/* Donate Button (Sber Card) */}
               <button
                 onClick={onOpenDonate}
@@ -183,40 +194,46 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </header>
 
-      {/* Mobile Sticky Bottom Navigation Bar (Android Phone Thumb Navigation) */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 pb-safe shadow-2xl px-0.5 py-1 flex items-center justify-between">
+      {/* Mobile Sticky Bottom Navigation Bar (Android Phone Thumb Navigation - Greatly expanded touch-sensitive zone) */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900/98 backdrop-blur-2xl border-t border-slate-800/90 shadow-2xl px-0.5 py-1 pb-[max(0.75rem,env(safe-area-inset-bottom))] min-h-[72px] flex items-stretch justify-around">
         {navItems.map(item => {
           const active = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 min-w-0 flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
+              className={`flex-1 min-w-0 h-full min-h-[64px] py-1 px-1 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer touch-manipulation select-none active:scale-95 active:bg-slate-800/80 ${
                 active
-                  ? 'text-cyan-400 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'text-cyan-300 font-bold bg-slate-800/70 shadow-inner'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/30'
               }`}
             >
-              <div className={`p-1 rounded-lg ${active ? 'bg-cyan-500/15 scale-105' : ''}`}>
+              <div className={`p-2 rounded-xl transition-all ${
+                active 
+                  ? 'bg-cyan-500/25 text-cyan-300 ring-2 ring-cyan-400/50 shadow-md shadow-cyan-500/30 scale-105' 
+                  : 'text-slate-300 group-hover:text-white'
+              }`}>
                 {item.icon}
               </div>
-              <span className="text-[9px] mt-0.5 tracking-tight leading-none text-center truncate max-w-full">
+              <span className={`text-[11px] mt-1 tracking-tight leading-tight text-center truncate max-w-full font-semibold ${
+                active ? 'text-cyan-300 font-black' : 'text-slate-300'
+              }`}>
                 {item.mobileLabel}
               </span>
             </button>
           );
         })}
 
-        {/* Mobile Router Web Button (Direct Gateway 192.168.1.1) */}
+        {/* Mobile Router Web Button (Direct Gateway 192.168.1.1 - Large touch zone) */}
         <button
           onClick={onOpenRouterWeb}
-          className="flex-1 min-w-0 flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer text-indigo-400 hover:text-indigo-300 active:scale-95"
+          className="flex-1 min-w-0 h-full min-h-[64px] py-1 px-1 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer text-indigo-400 hover:text-indigo-200 touch-manipulation select-none active:scale-95 active:bg-indigo-950/60"
           title="Открыть веб-интерфейс роутера (шлюз 192.168.1.1)"
         >
-          <div className="p-1 rounded-lg bg-indigo-500/15">
-            <Router className="w-4 h-4 text-indigo-400" />
+          <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            <Router className="w-5 h-5 text-indigo-400" />
           </div>
-          <span className="text-[9px] mt-0.5 tracking-tight leading-none font-semibold text-center truncate max-w-full">
+          <span className="text-[11px] mt-1 tracking-tight leading-tight font-bold text-center truncate max-w-full text-indigo-300">
             Роутер
           </span>
         </button>

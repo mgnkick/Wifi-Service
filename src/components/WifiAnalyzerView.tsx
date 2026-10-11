@@ -21,7 +21,11 @@ import {
   Router,
   Share2,
   Copy,
-  Check
+  Check,
+  MapPin,
+  Settings,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { WifiNetwork, WifiBand, DeviceRole, SsidGroup } from '../types/wifi';
 import { SignalValue } from './SignalValue';
@@ -29,6 +33,7 @@ import { getSignalStatus, playSignalBeep } from '../utils/signalQuality';
 import { analyzeChannels, getFrequencyForChannel, NON_OVERLAPPING_2_4GHZ } from '../utils/channelAdvice';
 import { groupNetworksBySsid, classifyWifiNetworks } from '../utils/meshDetector';
 import { wifiScanner } from '../services/wifiScan';
+import { androidSystem } from '../services/androidSystem';
 
 interface WifiAnalyzerViewProps {
   networks: WifiNetwork[];
@@ -208,23 +213,89 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
     '#f43f5e', // rose-500
   ];
 
-  // If not connected to WiFi: no stubs, dashboard is empty, notification illuminates if cellular is connected
+  // If no networks from system: NO STUBS, NO MOCKING — honest "Нет данных" with functional system actions
   if (networks.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center space-y-4 shadow-xl">
-          <div className="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700/60 text-slate-400 flex items-center justify-center mx-auto shadow-inner">
-            <WifiOff className="w-8 h-8 text-rose-400" />
+        <div className="bg-slate-900/95 border-2 border-slate-800 rounded-3xl p-6 sm:p-10 text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-slate-800/90 border border-slate-700/80 text-slate-300 flex items-center justify-center mx-auto shadow-inner">
+            <WifiOff className="w-8 h-8 text-rose-400 animate-pulse" />
           </div>
           
-          <div className="space-y-2 max-w-md mx-auto">
-            <h3 className="text-lg font-bold text-slate-100">
-              Дашборд радиоэфира пуст
+          <div className="space-y-2 max-w-lg mx-auto">
+            <h3 className="text-lg sm:text-xl font-bold text-slate-100">
+              Нет данных о радиоэфире Wi-Fi
             </h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Устройство не подключено к Wi-Fi сети. Отображение заглушек отключено.
-              Графики спектра и каналов строятся только при наличии активного беспроводного соединения.
+            <p className="text-xs text-slate-300 leading-relaxed font-medium">
+              Имитации и тестовые заглушки отключены. Программа ожидает фактические данные сканирования Wi-Fi из системы Android.
             </p>
+          </div>
+
+          {/* Guide on what to turn on in Android system */}
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 max-w-md mx-auto text-left space-y-2.5 text-xs text-slate-300">
+            <div className="font-bold text-slate-100 flex items-center gap-2">
+              <Info className="w-4 h-4 text-cyan-400" />
+              <span>Что требуется включить в системе Android:</span>
+            </div>
+            <ul className="space-y-2 text-slate-300 pl-1">
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center shrink-0 text-[10px]">1</span>
+                <span><strong className="text-white">Разрешение на геолокацию:</strong> в Android доступ к именам и списку сетей Wi-Fi требует разрешения <code className="text-cyan-300 bg-slate-900 px-1 py-0.5 rounded font-mono">ACCESS_FINE_LOCATION</code>.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
+                <span><strong className="text-white">Служба геолокации (GPS):</strong> включите значок «Геолокация» в шторке смартфона (требование Android 9–14 для сканирования).</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center shrink-0 text-[10px]">3</span>
+                <span><strong className="text-white">Wi-Fi модуль:</strong> включите Wi-Fi на смартфоне и подключитесь к роутеру.</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Functional System Buttons */}
+          <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-md mx-auto pt-1">
+            <button
+              onClick={() => {
+                androidSystem.requestLocationPermission().then(() => {
+                  wifiScanner.triggerScan();
+                });
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer active:scale-95"
+            >
+              <MapPin className="w-4 h-4" />
+              <span>Запросить разрешение (Геолокация)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                androidSystem.openWifiSettings();
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <Settings className="w-4 h-4 text-cyan-400" />
+              <span>Настройки Wi-Fi</span>
+            </button>
+
+            <button
+              onClick={() => {
+                androidSystem.openLocationSettings();
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <ExternalLink className="w-4 h-4 text-amber-400" />
+              <span>Включить GPS в системе</span>
+            </button>
+
+            <button
+              onClick={() => {
+                wifiScanner.triggerScan();
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4 text-emerald-400" />
+              <span>Повторить сканирование</span>
+            </button>
           </div>
 
           {isCellular && (

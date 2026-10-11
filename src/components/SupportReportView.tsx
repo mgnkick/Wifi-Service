@@ -22,6 +22,7 @@ interface SupportReportViewProps {
   onRunSpeedtest?: () => void;
   isCellular?: boolean;
   isWifiConnected?: boolean;
+  isVpn?: boolean;
 }
 
 export const SupportReportView: React.FC<SupportReportViewProps> = ({
@@ -29,6 +30,7 @@ export const SupportReportView: React.FC<SupportReportViewProps> = ({
   speedtestResult,
   isCellular = false,
   isWifiConnected = true,
+  isVpn = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isPinging, setIsPinging] = useState(false);
@@ -81,12 +83,17 @@ export const SupportReportView: React.FC<SupportReportViewProps> = ({
     return () => clearTimeout(timer);
   }, []);
 
-  // VPN Status detection from session or properties
-  const isVpnDetected = (speedtestResult?.ipInfo?.isp?.toLowerCase()?.includes('vpn') ||
-    speedtestResult?.ipInfo?.isp?.toLowerCase()?.includes('cloud') ||
-    speedtestResult?.ipInfo?.isp?.toLowerCase()?.includes('hosting') ||
-    speedtestResult?.ipInfo?.isp?.toLowerCase()?.includes('digitalocean') ||
-    speedtestResult?.ipInfo?.isp?.toLowerCase()?.includes('hetzner')) ?? false;
+  // VPN Status detection from session, props or properties
+  const isVpnDetected = Boolean(
+    isVpn ||
+    (speedtestResult?.ipInfo?.isp && (
+      speedtestResult.ipInfo.isp.toLowerCase().includes('vpn') ||
+      speedtestResult.ipInfo.isp.toLowerCase().includes('cloud') ||
+      speedtestResult.ipInfo.isp.toLowerCase().includes('hosting') ||
+      speedtestResult.ipInfo.isp.toLowerCase().includes('digitalocean') ||
+      speedtestResult.ipInfo.isp.toLowerCase().includes('hetzner')
+    ))
+  );
 
   const downloadVal = speedtestResult?.downloadMbps ?? 85.4;
   const uploadVal = speedtestResult?.uploadMbps ?? 78.2;

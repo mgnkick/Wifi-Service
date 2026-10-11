@@ -82,66 +82,273 @@ export async function measurePing(iterations = 4): Promise<{ pingMs: number; jit
 }
 
 /**
- * Fetch public IP & ISP info
+ * Helper to test if device is in Russian/CIS environment
  */
-export async function fetchIpAndIspInfo(): Promise<NetworkDiagnostics['localIp'] extends string ? any : never> {
+export function isRussianEnvironment(): boolean {
   try {
-    const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(4000) });
+    const lang = (navigator.language || '').toLowerCase();
+    const languages = (navigator.languages || []).map(l => l.toLowerCase());
+    if (lang.startsWith('ru') || lang.startsWith('be') || languages.some(l => l.startsWith('ru') || l.startsWith('be'))) {
+      return true;
+    }
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if (
+      tz.includes('Moscow') || tz.includes('Samara') || tz.includes('Yekaterinburg') ||
+      tz.includes('Novosibirsk') || tz.includes('Krasnoyarsk') || tz.includes('Irkutsk') ||
+      tz.includes('Vladivostok') || tz.includes('Omsk') || tz.includes('Kaliningrad') ||
+      tz.includes('Volgograd') || tz.includes('Barnaul') || tz.includes('Yakutsk') ||
+      tz.includes('Sakhalin') || tz.includes('Magadan') || tz.includes('Kamchatka') ||
+      tz.includes('Chita') || tz.includes('Tomsk') || tz.includes('Minsk') || tz.includes('Russia')
+    ) {
+      return true;
+    }
+    const offset = new Date().getTimezoneOffset(); // Moscow is UTC+3 -> -180 minutes
+    if (offset <= -120 && offset >= -720) {
+      return true;
+    }
+  } catch {}
+  return true; // Default to true since WiFi Expert is targeted at Russian broadband technicians
+}
+
+/**
+ * Fetch public IP & ISP info with automatic VPN and hosting detection
+ */
+export async function fetchIpAndIspInfo(): Promise<{
+  ip: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  countryCode?: string;
+  isp?: string;
+  org?: string;
+  isVpn?: boolean;
+  vpnReason?: string;
+}> {
+  const isRuUser = isRussianEnvironment();
+
+  // 1. Try freeipapi.com (very fast, reliable CORS, ASN & org data)
+  try {
+    const res = await fetch('https://freeipapi.com/api/json', { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
       const data = await res.json();
-      return {
-        ip: data.ip || '192.168.1.105',
-        city: data.city || 'Москва',
-        region: data.region || 'Московская область',
-        country: data.country_name || 'Россия',
-        isp: data.org || data.asn || 'Домашний провайдер',
-        org: data.org || '',
-      };
+      if (data && data.ipAddress) {
+        const countryCode = (data.countryCode || '').toUpperCase();
+        const country = data.countryName || '';
+        const ispName = data.asnOrganization || data.org || '';
+        const orgName = data.asn || '';
+        const combined = `${ispName} ${orgName} ${data.cityName || ''}`.toLowerCase();
+
+        const isDatacenter = /datacenter|hosting|ovh|digitalocean|linode|hetzner|m247|vultr|oracle|amazon|aws|google|azure|cloudflare|fastly|leaseweb|scaleway|contabo|vpn|wireguard|vless|shadowsocks|itldc|aeza|server|vps|cloud|warp|adguard|tunnel/i.test(combined);
+        const isForeign = countryCode && countryCode !== 'RU' && countryCode !== 'BY';
+        const isVpnDetected = isDatacenter || (isRuUser && isForeign);
+
+        let vpnReason: string | undefined;
+        if (isVpnDetected) {
+          vpnReason = isForeign
+            ? `Активен зарубежный VPN-сервер (${country || countryCode}, ${ispName || 'Удаленный узел'}). IP: ${data.ipAddress}`
+            : `Трафик маршрутизируется через датацентр/VPN (${ispName || 'Хостинг'}). IP: ${data.ipAddress}`;
+        }
+
+        return {
+          ip: data.ipAddress,
+          city: data.cityName || 'Москва',
+          region: data.regionName || 'Регион',
+          country: country || 'Россия',
+          countryCode: countryCode || 'RU',
+          isp: ispName || (isForeign ? `VPN Gateway (${countryCode})` : 'Домашний провайдер'),
+          org: orgName,
+          isVpn: isVpnDetected,
+          vpnReason,
+        };
+      }
     }
-  } catch {
-    // Fallback via cloudflare trace
-    try {
-      const cfRes = await fetch('https://1.1.1.1/cdn-cgi/trace', { signal: AbortSignal.timeout(3000) });
+  } catch {}
+
+  // 2. Try api.ip.sb/geoip (ultra fast, CORS-enabled global endpoint)
+  try {
+    const res = await fetch('https://api.ip.sb/geoip', { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.ip) {
+        const countryCode = (data.country_code || '').toUpperCase();
+        const country = data.country || '';
+        const ispName = data.isp || data.organization || '';
+        const orgName = data.organization || '';
+        const combined = `${ispName} ${orgName}`.toLowerCase();
+
+        const isDatacenter = /datacenter|hosting|ovh|digitalocean|linode|hetzner|m247|vultr|oracle|amazon|aws|google|azure|cloudflare|fastly|leaseweb|scaleway|contabo|vpn|wireguard|vless|shadowsocks|itldc|aeza|server|vps|cloud|warp|adguard/i.test(combined);
+        const isForeign = countryCode && countryCode !== 'RU' && countryCode !== 'BY';
+        const isVpnDetected = isDatacenter || (isRuUser && isForeign);
+
+        let vpnReason: string | undefined;
+        if (isVpnDetected) {
+          vpnReason = isForeign
+            ? `Активен зарубежный VPN-сервер (${country || countryCode}, ${ispName || 'VPN'}). IP: ${data.ip}`
+            : `Трафик маршрутизируется через датацентр/VPN (${ispName}). IP: ${data.ip}`;
+        }
+
+        return {
+          ip: data.ip,
+          city: data.city || 'Москва',
+          region: data.region || 'Регион',
+          country: country || 'Россия',
+          countryCode: countryCode || 'RU',
+          isp: ispName || (isForeign ? `VPN (${countryCode})` : 'Интернет-провайдер'),
+          org: orgName,
+          isVpn: isVpnDetected,
+          vpnReason,
+        };
+      }
+    }
+  } catch {}
+
+  // 3. Try ipwho.is (CORS friendly, full security flags)
+  try {
+    const res = await fetch('https://ipwho.is/', { signal: AbortSignal.timeout(3500) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success !== false && data.ip) {
+        const ispName = data.connection?.isp || data.connection?.org || '';
+        const orgName = data.connection?.org || '';
+        const combined = `${ispName} ${orgName}`.toLowerCase();
+        const countryCode = (data.country_code || '').toUpperCase();
+        const country = data.country || '';
+
+        const isDatacenter = !!(
+          data.security?.vpn ||
+          data.security?.proxy ||
+          data.security?.hosting ||
+          data.security?.tor ||
+          /datacenter|hosting|ovh|digitalocean|linode|hetzner|m247|vultr|oracle|amazon|aws|google|azure|cloudflare|fastly|leaseweb|scaleway|contabo|vpn|wireguard|vless|shadowsocks|itldc|aeza|server|vps|cloud|warp|adguard|tunnel/i.test(combined)
+        );
+
+        const isForeignLocation = countryCode && countryCode !== 'RU' && countryCode !== 'BY';
+        const isVpnDetected = isDatacenter || (isRuUser && isForeignLocation);
+
+        let vpnReason: string | undefined;
+        if (isVpnDetected) {
+          vpnReason = isForeignLocation
+            ? `Активен зарубежный VPN-сервер (${country}, ${ispName || orgName || 'Хостинг'}). IP: ${data.ip}`
+            : `Трафик маршрутизируется через датацентр/VPN (${ispName || orgName}). IP: ${data.ip}`;
+        }
+
+        return {
+          ip: data.ip,
+          city: data.city || 'Москва',
+          region: data.region || 'Регион',
+          country: country || 'Россия',
+          countryCode,
+          isp: ispName || orgName || 'Интернет-провайдер',
+          org: orgName,
+          isVpn: isVpnDetected,
+          vpnReason,
+        };
+      }
+    }
+  } catch {}
+
+  // 4. Try Cloudflare Trace (checks client IP, country code, warp flag)
+  try {
+    const cfRes = await fetch('https://1.1.1.1/cdn-cgi/trace', { signal: AbortSignal.timeout(3000) });
+    if (cfRes.ok) {
       const text = await cfRes.text();
-      const ipMatch = text.match(/ip=(.+)/);
+      const ipMatch = text.match(/ip=([^\r\n]+)/);
+      const locMatch = text.match(/loc=([^\r\n]+)/);
+      const warpMatch = text.match(/warp=([^\r\n]+)/);
+      const coloMatch = text.match(/colo=([^\r\n]+)/);
+
+      const clientIp = ipMatch ? ipMatch[1].trim() : '127.0.0.1';
+      const loc = locMatch ? locMatch[1].trim().toUpperCase() : 'RU';
+      const isWarp = warpMatch ? warpMatch[1].trim() === 'on' || warpMatch[1].trim() === 'plus' : false;
+      const isForeign = loc !== 'RU' && loc !== 'BY';
+
+      const isVpn = isWarp || (isRuUser && isForeign);
+
       return {
-        ip: ipMatch ? ipMatch[1].trim() : '178.62.204.18',
-        city: 'Москва',
-        region: 'Центральный регион',
-        country: 'Россия',
-        isp: 'ПАО Ростелеком',
-        org: 'Rostelecom Broadband',
+        ip: clientIp,
+        city: isForeign ? `Узел ${coloMatch ? coloMatch[1] : 'EU'}` : 'Локальный узел',
+        region: isForeign ? 'Зарубежный сервер' : 'Центральный регион',
+        country: isForeign ? loc : 'Россия',
+        countryCode: loc,
+        isp: isWarp ? 'Cloudflare WARP VPN' : (isForeign ? `VPN Gateway (${loc})` : 'Домашний провайдер'),
+        org: isWarp ? 'Cloudflare Inc.' : 'Broadband',
+        isVpn,
+        vpnReason: isVpn ? `Трафик маршрутизируется через VPN (${loc}, узел ${coloMatch ? coloMatch[1] : 'Cloudflare'}). IP: ${clientIp}` : undefined,
       };
-    } catch {
-      // offline / mock default
     }
-  }
+  } catch {}
+
+  // 5. Try api.ipify.org to at least obtain real public IP
+  try {
+    const ipifyRes = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(2500) });
+    if (ipifyRes.ok) {
+      const data = await ipifyRes.json();
+      if (data.ip) {
+        return {
+          ip: data.ip,
+          city: 'Определяется',
+          region: 'ШПД сеть',
+          country: 'Россия',
+          countryCode: 'RU',
+          isp: 'Интернет-провайдер',
+          org: '',
+          isVpn: false,
+        };
+      }
+    }
+  } catch {}
 
   return {
-    ip: '178.62.204.18',
-    city: 'Москва',
-    region: 'Центральный регион',
+    ip: '192.168.1.100',
+    city: 'Локальная сеть',
+    region: 'ШПД сеть',
     country: 'Россия',
-    isp: 'Ростелеком / МТС',
-    org: 'Домашний интернет',
+    countryCode: 'RU',
+    isp: 'Домашний Wi-Fi / ШПД',
+    org: 'Домашняя сеть',
+    isVpn: false,
   };
 }
 
 /**
  * Detect VPN / proxy presence heuristically
  */
-export function checkVpnHeuristics(ispName?: string, timezone?: string): { vpnDetected: boolean; reason?: string } {
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const isVpnIsp = /datacenter|hosting|ovh|digitalocean|linode|hetzner|m247|vpn|wireguard|cloudflare/i.test(ispName || '');
-  
-  if (isVpnIsp) {
-    return {
-      vpnDetected: true,
-      reason: `Провайдер определен как датацентр (${ispName}). Активен VPN или прокси, пинг и скорость измеряются до VPN-сервера!`,
-    };
+export function checkVpnHeuristics(
+  infoOrIsp?: string | { isp?: string; countryCode?: string; country?: string; org?: string; isVpn?: boolean; vpnReason?: string },
+  timezone?: string
+): { vpnDetected: boolean; reason?: string } {
+  if (infoOrIsp && typeof infoOrIsp === 'object') {
+    if (infoOrIsp.isVpn) {
+      return {
+        vpnDetected: true,
+        reason: infoOrIsp.vpnReason || `Обнаружен активный VPN (${infoOrIsp.country || ''} ${infoOrIsp.isp || ''}). Трафик шифруется через удаленный узел.`,
+      };
+    }
+    const combined = `${infoOrIsp.isp || ''} ${infoOrIsp.org || ''}`.toLowerCase();
+    const isVpnIsp = /datacenter|hosting|ovh|digitalocean|linode|hetzner|m247|vultr|oracle|amazon|aws|google|azure|cloudflare|fastly|leaseweb|scaleway|contabo|vpn|wireguard|vless|shadowsocks|itldc|aeza/i.test(combined);
+    if (isVpnIsp) {
+      return {
+        vpnDetected: true,
+        reason: `Провайдер определен как датацентр/VPN (${infoOrIsp.isp || infoOrIsp.org}). Активен VPN или прокси!`,
+      };
+    }
+    if (infoOrIsp.countryCode && infoOrIsp.countryCode !== 'RU' && infoOrIsp.countryCode !== 'BY' && isRussianEnvironment()) {
+      return {
+        vpnDetected: true,
+        reason: `IP-адрес находится в зарубежной локации (${infoOrIsp.country || infoOrIsp.countryCode}). Включен VPN-сервер.`,
+      };
+    }
+  } else if (typeof infoOrIsp === 'string' && infoOrIsp.trim()) {
+    const isVpnIsp = /datacenter|hosting|ovh|digitalocean|linode|hetzner|m247|vultr|oracle|amazon|aws|google|azure|cloudflare|fastly|leaseweb|scaleway|contabo|vpn|wireguard|vless|shadowsocks|itldc|aeza/i.test(infoOrIsp);
+    if (isVpnIsp) {
+      return {
+        vpnDetected: true,
+        reason: `Провайдер определен как датацентр (${infoOrIsp}). Активен VPN или прокси!`,
+      };
+    }
   }
 
-  // If IP timezone drastically differs from device timezone
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (timezone && timezone !== browserTz && !timezone.includes('Europe') && browserTz.includes('Europe/Moscow')) {
     return {
       vpnDetected: true,

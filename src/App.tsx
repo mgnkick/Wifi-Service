@@ -71,6 +71,7 @@ export default function App() {
           connectedSignalDbm={connectedNet?.level}
           isWifiConnected={isWifiConnected}
           isCellular={isCellular}
+          isVpn={isVpn}
         />
 
         {/* Main Content Area (Tailored for mobile Android & responsive, no horizontal scroll) */}
@@ -123,6 +124,7 @@ export default function App() {
               speedtestResult={speedtestResult}
               isCellular={isCellular}
               isWifiConnected={isWifiConnected}
+              isVpn={isVpn}
             />
           )}
 
