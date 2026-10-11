@@ -25,11 +25,13 @@ import {
   Activity,
   CheckCircle2,
   X,
-  Play
+  Play,
+  Settings
 } from 'lucide-react';
 import { LanDevice, SubnetScanProgress, DeviceCategory } from '../types/lanDevice';
 import { scanLocalSubnet, getSubnetFromGateway, pingLanDevice } from '../services/lanScannerService';
 import { openRouterWebDirect } from '../utils/routerNav';
+import { androidSystem } from '../services/androidSystem';
 
 interface LanScannerViewProps {
   gatewayIp?: string;
@@ -238,6 +240,19 @@ export const LanScannerView: React.FC<LanScannerViewProps> = ({
               <span>Подключен мобильный интернет (4G / 5G / LTE) — локальная сеть недоступна</span>
             </div>
           )}
+
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+            <a
+              href={androidSystem.getWifiSettingsIntentUrl()}
+              onClick={() => {
+                androidSystem.openWifiSettings();
+              }}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer active:scale-95"
+            >
+              <Settings className="w-4 h-4" />
+              <span>Открыть настройки Wi-Fi</span>
+            </a>
+          </div>
         </div>
       </div>
     );

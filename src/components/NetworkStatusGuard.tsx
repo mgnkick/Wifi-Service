@@ -24,7 +24,7 @@ interface NetworkStatusGuardProps {
 
 export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
   ispName: initialIspName,
-  hasConnectedWifi: _hasConnectedWifi,
+  hasConnectedWifi,
   onRefreshWifiScan,
   onConnectionStatusChange,
 }) => {
@@ -45,6 +45,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
   const [netInfo, setNetInfo] = useState<{
     ip: string;
     isp: string;
+    city?: string;
     org?: string;
     country?: string;
     countryCode?: string;
@@ -79,34 +80,40 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
       const isVpnDetected = Boolean(info.isVpn || vpnCheck.vpnDetected);
       const vpnReason = info.vpnReason || vpnCheck.reason;
 
-      // 3. In-depth Wi-Fi vs Cellular verification:
-      // Even if type is 'cellular' (common in Android Chrome with active SIM) or 'unknown',
-      // probe if local router gateway or private IP exists
-      let wifiConnected = online && (type === 'wifi' || type === 'unknown');
-      let isCellularActive = online && type === 'cellular';
+      // 3. Accurate Wi-Fi vs Cellular verification:
+      // - If wifiScanner has an active connected network: definitely Wi-Fi
+      // - If @capacitor/network reports 'wifi': definitely Wi-Fi
+      // - If online and type is 'unknown': broadband / Wi-Fi
+      // - Only if type is strictly 'cellular' AND no active Wi-Fi SSID / local IP: cellular
+      let wifiConnected = false;
+      let isCellularActive = false;
 
-      if (!wifiConnected && online) {
-        // Probe local router gateways (192.168.1.1, etc.) or WebRTC local IP
-        const [localIp, localGw] = await Promise.all([
-          androidSystem.getLocalLanIp(),
-          androidSystem.probeLocalGateway(),
-        ]);
-        if (localIp || localGw) {
+      if (!online) {
+        wifiConnected = false;
+        isCellularActive = false;
+      } else if (hasConnectedWifi || type === 'wifi') {
+        wifiConnected = true;
+        isCellularActive = false;
+      } else if (type === 'cellular') {
+        // Double-check if local private IP exists before declaring cellular
+        const localIp = await androidSystem.getLocalLanIp();
+        if (localIp || hasConnectedWifi) {
           wifiConnected = true;
           isCellularActive = false;
+        } else {
+          wifiConnected = false;
+          isCellularActive = true;
         }
-      }
-
-      // Check ISP for mobile provider indicators if Wi-Fi isn't explicitly confirmed
-      const ispLower = `${info.isp || ''} ${info.org || ''}`.toLowerCase();
-      const isKnownMobileIsp = /mts|мтс|megafon|мегафон|beeline|билайн|tele2|теле2|t2|yota|йота|scartel|motiv|мотив/i.test(ispLower);
-      if (isKnownMobileIsp && !wifiConnected) {
-        isCellularActive = true;
+      } else {
+        // 'unknown' or desktop/broadband default
+        wifiConnected = true;
+        isCellularActive = false;
       }
 
       setNetInfo({
         ip: info.ip,
         isp: info.isp || 'Интернет-провайдер',
+        city: info.city,
         org: info.org,
         country: info.country,
         countryCode: info.countryCode,
@@ -131,7 +138,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
       setConnectionType(isCell ? 'cellular' : (online ? 'wifi' : 'none'));
 
       const fallbackStatus = {
-        isWifiConnected: online,
+        isWifiConnected: online && !isCell,
         isCellular: Boolean(online && isCell),
         isVpn: false,
       };
@@ -140,7 +147,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
     } finally {
       setIsChecking(false);
     }
-  }, [onConnectionStatusChange]);
+  }, [hasConnectedWifi, onConnectionStatusChange]);
 
   useEffect(() => {
     checkNetworkStatus();
@@ -193,16 +200,111 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
     onRefreshWifiScan();
   };
 
-  const isWifiDisconnected = !connectionStatus.isWifiConnected;
+  const isWifiConnected = connectionStatus.isWifiConnected;
   const isCellularActive = connectionStatus.isCellular;
   const isVpnActive = connectionStatus.isVpn;
 
   return (
     <div className="space-y-3 w-full">
       
-      {/* 🔴 1. УВЕДОМЛЕНИЕ: ВАЙФАЙ ОТКЛЮЧЕН (Отображается на каждой вкладке, если Wi-Fi не подключен) */}
-      {isWifiDisconnected && (
-        <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-rose-950/80 via-rose-900/60 to-rose-950/80 border-2 border-rose-500/80 shadow-2xl shadow-rose-950/50 text-rose-100 animate-in fade-in">
+      {/* 🟢 1. ИНФО О ПОДКЛЮЧЕННОЙ СЕТИ WI-FI (Только если Wi-Fi включен и подключен — никаких предупреждающих уведомлений!) */}
+      {isWifiConnected && isOnline && (
+        <div className="rounded-2xl p-3.5 sm:p-4 bg-slate-900/90 border border-emerald-500/40 shadow-lg text-slate-200 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                <Wifi className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-xs sm:text-sm text-slate-100 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Wi-Fi подключен к сети</span>
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30">
+                    Активно
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center gap-2 flex-wrap font-mono">
+                  <span>Провайдер: <strong className="text-slate-200">{netInfo.isp || initialIspName || 'Домашний интернет'}</strong></span>
+                  {netInfo.ip && <span>• IP: <strong className="text-slate-200">{netInfo.ip}</strong></span>}
+                  {netInfo.city && <span>• Город: <strong className="text-slate-200">{netInfo.city}</strong></span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                onClick={handleRefreshAll}
+                disabled={isChecking}
+                className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Обновить данные сети"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isChecking ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+                <span>Обновить</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🟠 2. ДРУГОЕ УВЕДОМЛЕНИЕ: ИСПОЛЬЗУЕТСЯ МОБИЛЬНЫЙ ИНТЕРНЕТ (Wi-Fi не подключен к сети) */}
+      {!isWifiConnected && isCellularActive && isOnline && (
+        <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-amber-950/85 via-orange-950/60 to-amber-950/85 border-2 border-amber-400/90 shadow-2xl shadow-amber-950/40 text-amber-100 animate-in fade-in ring-2 ring-amber-400/20">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 rounded-2xl bg-amber-500/25 text-amber-300 border border-amber-400/50 shrink-0 shadow-lg shadow-amber-500/20 relative">
+                <Smartphone className="w-6 h-6 text-amber-300" />
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
+                </span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-black text-sm sm:text-base text-amber-200 tracking-wide uppercase">
+                    Используется мобильный интернет
+                  </span>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black uppercase tracking-wider shadow-sm">
+                    4G / LTE
+                  </span>
+                </div>
+                <p className="text-xs text-amber-200/90 leading-relaxed max-w-2xl font-medium">
+                  Wi-Fi включен, но не подключен к сети. Устройство работает через мобильную сеть ({netInfo.isp || 'Сотовая связь'}). 
+                  Локальный радиоэфир, проверка занятости каналов и веб-интерфейс роутера абонента недоступны через сотовые данные.
+                </p>
+                <div className="text-[11px] text-amber-300 font-semibold pt-0.5 flex items-center gap-1.5">
+                  <span>💡 Подключитесь к сети Wi-Fi для тестирования линии и аудита роутера абонента.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto pt-1 sm:pt-0 shrink-0">
+              <a
+                href={androidSystem.getWifiSettingsIntentUrl()}
+                onClick={handleOpenWifiSettings}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-amber-400/30 transition-all cursor-pointer active:scale-95"
+              >
+                <Wifi className="w-4 h-4" />
+                <span>Открыть настройки Wi-Fi</span>
+              </a>
+              <button
+                onClick={handleRefreshAll}
+                disabled={isChecking}
+                className="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-amber-400/40 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title="Повторить проверку сети"
+              >
+                <RefreshCw className={`w-4 h-4 ${isChecking ? 'animate-spin text-cyan-400' : 'text-slate-300'}`} />
+                <span>Проверить снова</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔴 3. УВЕДОМЛЕНИЕ: НЕТ ПОДКЛЮЧЕНИЯ К ИНТЕРНЕТУ (Офлайн) */}
+      {!isOnline && (
+        <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-rose-950/85 via-rose-900/65 to-rose-950/85 border-2 border-rose-500/80 shadow-2xl shadow-rose-950/50 text-rose-100 animate-in fade-in">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-start gap-3.5">
               <div className="p-3 rounded-2xl bg-rose-500/30 text-rose-300 border border-rose-400/50 shrink-0 shadow-lg shadow-rose-500/20">
@@ -211,31 +313,30 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-black text-sm sm:text-base text-white tracking-wide uppercase">
-                    Внимание: Wi-Fi отключен!
+                    Нет подключения к интернету
                   </span>
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-500 text-white font-bold uppercase tracking-wider shadow-sm">
-                    {isCellularActive ? 'Работает через 4G' : 'Нет сети'}
+                    Офлайн
                   </span>
                 </div>
                 <p className="text-xs text-rose-200 leading-relaxed max-w-2xl font-medium">
-                  {isCellularActive 
-                    ? 'Устройство использует мобильный интернет оператора. Локальный радиоэфир и роутер клиента недоступны — дашборды пусты.'
-                    : 'Устройство находится в офлайн-режиме. Для замера параметров линии и анализа эфира требуется подключение к сети Wi-Fi.'}
+                  Устройство находится в автономном режиме. Для замера параметров линии абонента и проверки скорости включите Wi-Fi.
                 </p>
                 <div className="text-[11px] text-rose-300 font-semibold pt-0.5 flex items-center gap-1.5">
-                  <span>💡 Смахните шторку Android сверху вниз и нажмите значок Wi-Fi.</span>
+                  <span>💡 Смахните шторку Android сверху вниз и включите Wi-Fi.</span>
                 </div>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto pt-1 sm:pt-0 shrink-0">
-              <button
+              <a
+                href={androidSystem.getWifiSettingsIntentUrl()}
                 onClick={handleOpenWifiSettings}
                 className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-400 text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-500/30 transition-all cursor-pointer active:scale-95"
               >
                 <Settings className="w-4 h-4" />
                 <span>Открыть настройки Wi-Fi</span>
-              </button>
+              </a>
               <button
                 onClick={handleRefreshAll}
                 disabled={isChecking}
@@ -250,51 +351,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
         </div>
       )}
 
-      {/* 🟠 2. УВЕДОМЛЕНИЕ: ИСПОЛЬЗУЕТСЯ МОБИЛЬНЫЙ ИНТЕРНЕТ (Отображается на каждой вкладке при сотовых данных) */}
-      {isCellularActive && (
-        <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-amber-950/80 via-orange-950/60 to-amber-950/80 border-2 border-amber-400/90 shadow-2xl shadow-amber-950/40 text-amber-100 animate-in fade-in ring-2 ring-amber-400/20">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3.5">
-              <div className="p-3 rounded-2xl bg-amber-500/25 text-amber-300 border border-amber-400/50 shrink-0 shadow-lg shadow-amber-500/20 relative">
-                <Smartphone className="w-6 h-6 text-amber-300" />
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-black text-sm sm:text-base text-amber-200 tracking-wide uppercase">
-                    Используется мобильный интернет (4G / 5G / LTE)
-                  </span>
-                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black uppercase tracking-wider shadow-sm">
-                    Сотовая сеть
-                  </span>
-                </div>
-                <p className="text-xs text-amber-200/90 leading-relaxed max-w-2xl font-medium">
-                  Интернет подключен через мобильного оператора ({netInfo.isp || 'Сотовая связь'}). 
-                  Локальная сеть Wi-Fi клиента (шлюз 192.168.1.1, спектр каналов, устройства в квартире) недоступны без подключения к домашней сети Wi-Fi.
-                </p>
-                <div className="text-[11px] text-amber-300 font-semibold pt-0.5">
-                  💡 Переключитесь на сеть абонента для выполнения аудита и замера параметров роутера.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto pt-1 sm:pt-0 shrink-0">
-              <button
-                onClick={handleOpenWifiSettings}
-                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-amber-400/30 transition-all cursor-pointer active:scale-95"
-              >
-                <Wifi className="w-4 h-4" />
-                <span>Переключиться на Wi-Fi</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🟣 3. УВЕДОМЛЕНИЕ: VPN ВКЛЮЧЕН (Отображается на каждой вкладке, если обнаружен туннель/прокси) */}
+      {/* 🟣 4. УВЕДОМЛЕНИЕ: VPN ВКЛЮЧЕН (Отображается на каждой вкладке, если обнаружен туннель/прокси с предложением отключить) */}
       {isVpnActive && (
         <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-indigo-950/90 via-violet-950/70 to-indigo-950/90 border-2 border-indigo-400/90 shadow-2xl shadow-indigo-950/50 text-indigo-100 animate-in fade-in ring-2 ring-indigo-400/20">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -305,7 +362,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-black text-sm sm:text-base text-white tracking-wide uppercase">
-                    Внимание: Включен VPN / Прокси!
+                    Внимание: Включен VPN (туннель)
                   </span>
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-indigo-500 text-white font-bold uppercase tracking-wider shadow-sm">
                     {netInfo.country || 'Зарубежный сервер'} • {netInfo.isp || 'VPN'}
@@ -324,13 +381,14 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto pt-1 sm:pt-0 shrink-0">
-              <button
+              <a
+                href={androidSystem.getVpnSettingsIntentUrl()}
                 onClick={handleOpenVpnSettings}
                 className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-500 hover:bg-indigo-400 text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30 transition-all cursor-pointer active:scale-95"
               >
                 <Settings className="w-4 h-4" />
-                <span>Настройки VPN на телефоне</span>
-              </button>
+                <span>Отключить VPN (Настройки)</span>
+              </a>
               <button
                 onClick={handleRefreshAll}
                 disabled={isChecking}
@@ -397,7 +455,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
 
             <div className="space-y-2 pt-1">
               <a
-                href="intent:#Intent;action=android.settings.WIFI_SETTINGS;category=android.intent.category.DEFAULT;end"
+                href={androidSystem.getWifiSettingsIntentUrl()}
                 onClick={() => {
                   androidSystem.openWifiSettings();
                 }}
@@ -408,7 +466,10 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
               </a>
 
               <a
-                href="intent:#Intent;action=android.settings.WIRELESS_SETTINGS;category=android.intent.category.DEFAULT;end"
+                href={androidSystem.getIntentUrl('android.settings.WIRELESS_SETTINGS')}
+                onClick={() => {
+                  androidSystem.launchIntent('android.settings.WIRELESS_SETTINGS');
+                }}
                 className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-95"
               >
                 <Settings className="w-3.5 h-3.5 text-cyan-400" />
@@ -470,14 +531,14 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
 
             <div className="space-y-2 pt-1">
               <a
-                href="intent:#Intent;action=android.settings.VPN_SETTINGS;category=android.intent.category.DEFAULT;end"
+                href={androidSystem.getVpnSettingsIntentUrl()}
                 onClick={() => {
                   androidSystem.openVpnSettings();
                 }}
                 className="w-full py-3 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center gap-2 shadow-md shadow-indigo-600/30 transition-all cursor-pointer select-none active:scale-95"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Открыть меню VPN Android</span>
+                <span>Открыть меню VPN в Android</span>
               </a>
 
               <button

@@ -121,12 +121,12 @@ export const SupportReportView: React.FC<SupportReportViewProps> = ({
 • ${isVpnDetected ? '⚠️ VPN ОБНАРУЖЕН (шифрованный туннель активен)' : '✅ VPN отключен (прямой канал к шлюзу провайдера)'}
 
 3. КАЧЕСТВО ТЕКУЩЕГО ПОДКЛЮЧЕНИЯ:
-• Сеть: ${connectedNet ? `${connectedNet.ssid} (${connectedNet.bssid})` : 'Wi-Fi НЕ подключен (дашборд пуст, заглушки скрыты)'}
-• Уровень сигнала: ${connectedNet ? `${signalLevel} dBm (${signalQuality})` : 'Нет сигнала (Wi-Fi выключен)'}
-• Диапазон: ${connectedNet ? `${connectedNet.band}, Канал ${connectedNet.channel} (${connectedNet.channelWidth} МГц)` : 'Не определен'}
+• Сеть: ${connectedNet ? `${connectedNet.ssid} (${connectedNet.bssid})` : (isWifiConnected ? 'Подключено к сети Wi-Fi' : 'Wi-Fi НЕ подключен (дашборд пуст, заглушки скрыты)')}
+• Уровень сигнала: ${connectedNet ? `${signalLevel} dBm (${signalQuality})` : (isWifiConnected ? 'Подключено к Wi-Fi' : 'Нет сигнала (Wi-Fi не подключен)')}
+• Диапазон: ${connectedNet ? `${connectedNet.band}, Канал ${connectedNet.channel} (${connectedNet.channelWidth} МГц)` : (isWifiConnected ? 'Диапазон Wi-Fi активен' : 'Не определен')}
 • Мобильный интернет: ${isCellular ? 'АКТИВЕН (4G / 5G / LTE)' : 'Отключен'}
-• Шлюз роутера: ${connectedNet ? gatewayIp : 'Недоступен без подключения к Wi-Fi'}
-• Стабильность: ${connectedNet ? (signalLevel > -70 ? 'Стабильно, помехи в норме' : 'Внимание: высокий уровень затухания/помех') : 'Требуется подключение к Wi-Fi'}
+• Шлюз роутера: ${connectedNet || isWifiConnected ? gatewayIp : 'Недоступен без подключения к Wi-Fi'}
+• Стабильность: ${connectedNet ? (signalLevel > -70 ? 'Стабильно, помехи в норме' : 'Внимание: высокий уровень затухания/помех') : (isWifiConnected ? 'Соединение стабильно' : 'Требуется подключение к Wi-Fi')}
 
 4. СКОРОСТЬ ЛОКАЛЬНОГО ЗАМЕРА:
 • Входящая (Download): ${downloadVal} Мбит/с
@@ -439,11 +439,13 @@ export const SupportReportView: React.FC<SupportReportViewProps> = ({
                 <>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-sans">Wi-Fi:</span>
-                    <span className="font-bold text-rose-400">Не подключен</span>
+                    <span className={`font-bold ${isWifiConnected ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {isWifiConnected ? 'Подключен к сети' : 'Не подключен'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-sans">Сеть:</span>
-                    <span className="font-bold text-amber-300">{isCellular ? 'Мобильный 4G' : 'Нет связи'}</span>
+                    <span className="font-bold text-amber-300">{isWifiConnected ? 'Локальная сеть' : (isCellular ? 'Мобильный 4G' : 'Нет связи')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-sans">Заглушки:</span>
@@ -451,7 +453,9 @@ export const SupportReportView: React.FC<SupportReportViewProps> = ({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400 font-sans">Шлюз:</span>
-                    <span className="text-slate-500">Недоступен</span>
+                    <span className={isWifiConnected ? 'text-indigo-300 font-bold' : 'text-slate-500'}>
+                      {isWifiConnected ? gatewayIp : 'Недоступен'}
+                    </span>
                   </div>
                 </>
               )}

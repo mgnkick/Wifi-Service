@@ -191,29 +191,56 @@ class AndroidSystemService {
   }
 
   /**
+   * Get formatted Android intent URL with package=com.android.settings for 100% reliable system launch
+   */
+  public getIntentUrl(intentAction: string): string {
+    return `intent:#Intent;action=${intentAction};category=android.intent.category.DEFAULT;package=com.android.settings;end`;
+  }
+
+  public getWifiSettingsIntentUrl(): string {
+    return this.getIntentUrl('android.settings.WIFI_SETTINGS');
+  }
+
+  public getVpnSettingsIntentUrl(): string {
+    return this.getIntentUrl('android.settings.VPN_SETTINGS');
+  }
+
+  public getLocationSettingsIntentUrl(): string {
+    return this.getIntentUrl('android.settings.LOCATION_SOURCE_SETTINGS');
+  }
+
+  /**
    * Fire an Android intent to open system settings screen
    */
-  private launchIntent(intentAction: string): void {
-    const intentUrl = `intent:#Intent;action=${intentAction};category=android.intent.category.DEFAULT;end`;
+  public launchIntent(intentAction: string): void {
+    const intentUrl = this.getIntentUrl(intentAction);
+    const fallbackWirelessUrl = `intent:#Intent;action=android.settings.WIRELESS_SETTINGS;category=android.intent.category.DEFAULT;package=com.android.settings;end`;
 
     // 1. If running natively inside Capacitor APK
     if (Capacitor.isNativePlatform()) {
-      try {
-        AppLauncher.openUrl({ url: intentUrl }).catch(() => {});
-      } catch {}
+      AppLauncher.openUrl({ url: intentUrl })
+        .catch(() => AppLauncher.openUrl({ url: fallbackWirelessUrl }))
+        .catch(() => AppLauncher.openUrl({ url: 'intent:#Intent;action=android.settings.SETTINGS;package=com.android.settings;end' }))
+        .catch(() => {});
+      return;
     }
 
-    // 2. Direct DOM anchor click (recognized by Android Chrome / WebView)
+    // 2. Direct browser navigation to intent scheme (standard in Android Chrome / WebView)
     try {
-      const link = document.createElement('a');
-      link.href = intentUrl;
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        try { document.body.removeChild(link); } catch {}
-      }, 200);
-    } catch {}
+      window.location.href = intentUrl;
+    } catch {
+      // 3. Fallback: dynamic link click
+      try {
+        const link = document.createElement('a');
+        link.href = intentUrl;
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          try { document.body.removeChild(link); } catch {}
+        }, 150);
+      } catch {}
+    }
   }
 
   /**
