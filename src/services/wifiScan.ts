@@ -65,86 +65,9 @@ export class WifiScanService {
       isConnected: true,
     };
 
-    // Typical neighboring radio environment on 2.4GHz and 5GHz for spectrum analysis & channel ratings
-    const surroundingNets: WifiNetwork[] = [
-      {
-        ssid: `${ssid} (2.4G)`,
-        bssid: `50:D4:F7:2A:${gw.split('.').slice(-2).map(x => Number(x || 1).toString(16).padStart(2, '0')).join(':')}:9B`,
-        level: level - 6,
-        frequency: 2437,
-        channel: 6,
-        channelWidth: 20,
-        band: '2.4GHz',
-        capabilities: '[WPA2-PSK-CCMP][ESS]',
-        standard: 'Wi-Fi 5 (802.11ac)',
-        vendor: 'Wi-Fi Роутер',
-        securityType: 'WPA2',
-        distanceMeters: estimateDistanceMeters(level - 6, 2437),
-        isConnected: false,
-      },
-      {
-        ssid: 'Neighbor_Home_Net',
-        bssid: '2C:39:96:44:81:A2',
-        level: -76,
-        frequency: 2412,
-        channel: 1,
-        channelWidth: 20,
-        band: '2.4GHz',
-        capabilities: '[WPA2-PSK-CCMP][ESS]',
-        standard: 'Wi-Fi 4 (802.11n)',
-        vendor: 'TP-Link Technologies',
-        securityType: 'WPA2',
-        distanceMeters: estimateDistanceMeters(-76, 2412),
-        isConnected: false,
-      },
-      {
-        ssid: 'Office_Guest_AP',
-        bssid: '00:11:32:9F:3B:11',
-        level: -82,
-        frequency: 2462,
-        channel: 11,
-        channelWidth: 20,
-        band: '2.4GHz',
-        capabilities: '[WPA2-PSK-CCMP][ESS]',
-        standard: 'Wi-Fi 5 (802.11ac)',
-        vendor: 'Keenetic',
-        securityType: 'WPA2',
-        distanceMeters: estimateDistanceMeters(-82, 2462),
-        isConnected: false,
-      },
-      {
-        ssid: 'Apartment_5G_Fast',
-        bssid: '74:83:C2:55:10:90',
-        level: -74,
-        frequency: 5220,
-        channel: 44,
-        channelWidth: 80,
-        band: '5GHz',
-        capabilities: '[WPA2-PSK-CCMP][WPA3-SAE][ESS]',
-        standard: 'Wi-Fi 6 (802.11ax)',
-        vendor: 'Huawei',
-        securityType: 'WPA2',
-        distanceMeters: estimateDistanceMeters(-74, 5220),
-        isConnected: false,
-      },
-      {
-        ssid: 'Media_Server_5G',
-        bssid: 'E0:D5:5E:12:43:55',
-        level: -80,
-        frequency: 5745,
-        channel: 149,
-        channelWidth: 80,
-        band: '5GHz',
-        capabilities: '[WPA2-PSK-CCMP][ESS]',
-        standard: 'Wi-Fi 5 (802.11ac)',
-        vendor: 'Xiaomi',
-        securityType: 'WPA2',
-        distanceMeters: estimateDistanceMeters(-80, 5745),
-        isConnected: false,
-      }
-    ];
-
-    this.currentNetworks = [connectedNet, ...surroundingNets];
+    // STRICTLY REAL DATA: ONLY the active connected Wi-Fi network from Android system.
+    // No mock/fake/invented networks!
+    this.currentNetworks = [connectedNet];
     this.notify();
   }
 

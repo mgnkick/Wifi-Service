@@ -34,6 +34,7 @@ import { analyzeChannels, getFrequencyForChannel, NON_OVERLAPPING_2_4GHZ } from 
 import { groupNetworksBySsid, classifyWifiNetworks } from '../utils/meshDetector';
 import { wifiScanner } from '../services/wifiScan';
 import { androidSystem } from '../services/androidSystem';
+import { ConnectWifiModal } from './ConnectWifiModal';
 
 interface WifiAnalyzerViewProps {
   networks: WifiNetwork[];
@@ -56,6 +57,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
   const [expandedSsids, setExpandedSsids] = useState<Set<string>>(new Set());
   const [hoveredNetwork, setHoveredNetwork] = useState<WifiNetwork | null>(null);
   const [copiedBssid, setCopiedBssid] = useState<string | null>(null);
+  const [networkToConnect, setNetworkToConnect] = useState<WifiNetwork | null>(null);
 
   const handleCopyBssid = (bssid: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1010,6 +1012,18 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
 
                     {/* Right side: Best level & Expand indicator */}
                     <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto mt-2 sm:mt-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const targetNode = group.nodes.find(n => n.isConnected) || group.nodes[0];
+                          if (targetNode) setNetworkToConnect(targetNode);
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all cursor-pointer active:scale-95"
+                      >
+                        <Wifi className="w-3.5 h-3.5" />
+                        <span>{group.hasConnectedNode ? 'Настройки' : 'Подключиться'}</span>
+                      </button>
                       <SignalValue levelDbm={group.bestLevel} size="md" showLabel />
                       <div className="p-1 rounded-lg bg-slate-700/50 text-slate-300">
                         {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -1209,6 +1223,15 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
                       ≈ {net.distanceMeters || 3} м
                     </span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setNetworkToConnect(net)}
+                    className="w-full mt-3 py-1.5 px-3 rounded-xl text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 border border-cyan-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Wifi className="w-3.5 h-3.5" />
+                    <span>{net.isConnected ? 'Настройки подключения' : 'Подключиться к этой сети'}</span>
+                  </button>
                 </div>
               );
             })}
@@ -1216,6 +1239,12 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
         )}
 
       </div>
+
+      {/* Connect to Selected Network Modal */}
+      <ConnectWifiModal
+        network={networkToConnect}
+        onClose={() => setNetworkToConnect(null)}
+      />
 
     </div>
   );

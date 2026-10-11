@@ -15,16 +15,16 @@ export interface SpeedtestProgress {
 
 // Public fast CDN assets for testing download speeds
 const DOWNLOAD_CHUNKS = [
+  'https://speed.cloudflare.com/__down?bytes=10000000', // 10MB chunk with CORS
+  'https://speed.cloudflare.com/__down?bytes=5000000',  // 5MB chunk with CORS
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', // ~600KB
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', // ~1.2MB
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
 ];
 
 // Ping targets for multi-target latency test
 const PING_TARGETS = [
+  'https://speed.cloudflare.com/__down?bytes=0',
   'https://1.1.1.1/cdn-cgi/trace',
-  'https://cloudflare.com/cdn-cgi/trace',
   'https://www.google.com/favicon.ico',
 ];
 
@@ -488,21 +488,19 @@ export class SpeedtestRunner {
             historyPoints: [...historyPoints],
           });
         } catch {
-          // If network blocked or offline, generate synthetic realistic high-speed measurements
-          totalBytes += 800_000;
-          await new Promise(r => setTimeout(r, 120));
+          // Real error or network packet drop: do not add fake bytes
+          await new Promise(r => setTimeout(r, 100));
         }
       }
     };
 
-    // 3 parallel streams
-    await Promise.all([runWorker(0), runWorker(1), runWorker(2)]);
+    // Parallel streams for bandwidth saturation
+    await Promise.all([runWorker(0), runWorker(1)]);
 
-    const dlElapsedSec = (performance.now() - dlStart) / 1000;
-    let finalDownloadMbps = Math.round(((totalBytes * 8) / (dlElapsedSec * 1_000_000)) * 10) / 10;
-    if (finalDownloadMbps < 5 || isNaN(finalDownloadMbps)) {
-      finalDownloadMbps = 84.5; // realistic fallback
-    }
+    const dlElapsedSec = Math.max(0.1, (performance.now() - dlStart) / 1000);
+    const finalDownloadMbps = totalBytes > 0 
+      ? Math.round(((totalBytes * 8) / (dlElapsedSec * 1_000_000)) * 10) / 10 
+      : 0;
 
     if (signal.aborted) throw new Error('Aborted');
 
@@ -520,12 +518,12 @@ export class SpeedtestRunner {
       historyPoints: [...historyPoints],
     });
 
-    // Measure ping under simulated connection load
+    // Measure real ping under connection load
     const loadedPingStats = await measurePing(3);
-    const loadedPing = Math.max(idlePing, loadedPingStats.pingMs + 8);
+    const loadedPing = Math.max(idlePing, loadedPingStats.pingMs);
     const { grade: bufferbloatGrade, deltaMs: bufferbloatDelta } = calculateBufferbloatGrade(idlePing, loadedPing);
 
-    // --- Phase 4: Upload Test (70% - 95%) ---
+    // --- Phase 4: REAL Upload Test with genuine POST payloads (70% - 95%) ---
     this.onProgress({
       phase: 'upload',
       currentSpeedMbps: 0,
@@ -542,42 +540,66 @@ export class SpeedtestRunner {
     const ulHistoryPoints: number[] = [];
     const ulStart = performance.now();
     let ulTotalBytes = 0;
-    const ulDurationMs = 3500;
+    const ulDurationMs = 4000;
 
-    // Fast symmetric/asymmetric realistic upload estimation
-    // Usually upload is ~70-95% of download on fiber, or 20-30% on GPON/DOCSIS
-    const targetUploadRatio = 0.88;
-    const estimatedUpload = Math.round(finalDownloadMbps * targetUploadRatio * 10) / 10;
-
-    while (performance.now() - ulStart < ulDurationMs && !signal.aborted) {
-      const now = performance.now();
-      const elapsedSec = (now - ulStart) / 1000;
-      const progressFactor = Math.min(1, elapsedSec / (ulDurationMs / 1000));
-      const instantUpload = Math.round((estimatedUpload * (0.85 + 0.15 * Math.sin(progressFactor * Math.PI))) * 10) / 10;
-      
-      ulTotalBytes += (instantUpload * 1_000_000 / 8) * 0.15;
-      ulHistoryPoints.push(instantUpload);
-      if (ulHistoryPoints.length > 25) ulHistoryPoints.shift();
-
-      const progress = 70 + Math.round(progressFactor * 25);
-
-      this.onProgress({
-        phase: 'upload',
-        currentSpeedMbps: instantUpload,
-        downloadSpeedMbps: finalDownloadMbps,
-        uploadSpeedMbps: instantUpload,
-        pingMs: idlePing,
-        jitterMs: pingStats.jitterMs,
-        progressPercent: progress,
-        bufferbloatLatencyMs: bufferbloatDelta,
-        bufferbloatGrade,
-        historyPoints: [...ulHistoryPoints],
-      });
-
-      await new Promise(r => setTimeout(r, 120));
+    // Real binary payload chunk (256 KB)
+    const payloadChunk = new Uint8Array(256 * 1024);
+    // Fill with random noise so HTTP compression cannot collapse it
+    for (let i = 0; i < 1024; i++) {
+      payloadChunk[i] = Math.floor(Math.random() * 256);
     }
 
-    const finalUploadMbps = estimatedUpload;
+    const runUploadWorker = async () => {
+      while (performance.now() - ulStart < ulDurationMs && !signal.aborted) {
+        const chunkStart = performance.now();
+        try {
+          const res = await fetch('https://speed.cloudflare.com/__up', {
+            method: 'POST',
+            body: payloadChunk,
+            signal,
+            cache: 'no-store',
+          });
+          if (res.ok) {
+            ulTotalBytes += payloadChunk.byteLength;
+            const now = performance.now();
+            const chunkDurationSec = (now - chunkStart) / 1000;
+            const elapsedSec = (now - ulStart) / 1000;
+            const instantUpload = chunkDurationSec > 0.02 
+              ? Math.round(((payloadChunk.byteLength * 8) / (chunkDurationSec * 1_000_000)) * 10) / 10 
+              : 0;
+            const currentAvgUpload = Math.round(((ulTotalBytes * 8) / (elapsedSec * 1_000_000)) * 10) / 10;
+
+            ulHistoryPoints.push(instantUpload || currentAvgUpload);
+            if (ulHistoryPoints.length > 25) ulHistoryPoints.shift();
+
+            const progress = 70 + Math.min(25, Math.round((elapsedSec / (ulDurationMs / 1000)) * 25));
+
+            this.onProgress({
+              phase: 'upload',
+              currentSpeedMbps: instantUpload || currentAvgUpload,
+              downloadSpeedMbps: finalDownloadMbps,
+              uploadSpeedMbps: currentAvgUpload,
+              pingMs: idlePing,
+              jitterMs: pingStats.jitterMs,
+              progressPercent: progress,
+              bufferbloatLatencyMs: bufferbloatDelta,
+              bufferbloatGrade,
+              historyPoints: [...ulHistoryPoints],
+            });
+          }
+        } catch {
+          await new Promise(r => setTimeout(r, 80));
+        }
+      }
+    };
+
+    // Run parallel upload workers
+    await Promise.all([runUploadWorker(), runUploadWorker()]);
+
+    const ulElapsedSec = Math.max(0.1, (performance.now() - ulStart) / 1000);
+    const finalUploadMbps = ulTotalBytes > 0 
+      ? Math.round(((ulTotalBytes * 8) / (ulElapsedSec * 1_000_000)) * 10) / 10 
+      : 0;
 
     // --- Phase 5: Complete & IP Info ---
     const ipInfo = await fetchIpAndIspInfo();
