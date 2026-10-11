@@ -27,9 +27,23 @@ class AndroidSystemService {
   };
 
   private listeners: ((status: AndroidSystemStatus) => void)[] = [];
+  private settingsListeners: ((type: 'wifi' | 'vpn' | 'location') => void)[] = [];
 
   constructor() {
     this.init();
+  }
+
+  public onSettingsRequested(cb: (type: 'wifi' | 'vpn' | 'location') => void): () => void {
+    this.settingsListeners.push(cb);
+    return () => {
+      this.settingsListeners = this.settingsListeners.filter(l => l !== cb);
+    };
+  }
+
+  public notifySettingsRequested(type: 'wifi' | 'vpn' | 'location') {
+    this.settingsListeners.forEach(cb => {
+      try { cb(type); } catch {}
+    });
   }
 
   private async init() {
@@ -91,6 +105,36 @@ class AndroidSystemService {
   private notify() {
     const s = this.getStatus();
     this.listeners.forEach(cb => cb(s));
+  }
+
+  /**
+   * Request all necessary system permissions immediately at application startup
+   * (Android requires Geolocation permission for Wi-Fi SSID access and scanning)
+   */
+  public async requestAllStartupPermissions(): Promise<void> {
+    // 1. Geolocation permission (vital in Android for Wi-Fi SSID & scan results)
+    try {
+      if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            this.lastStatus.hasLocationPermission = true;
+            this.lastStatus.isLocationAvailable = true;
+            this.notify();
+          },
+          () => {
+            // silent fail, don't block startup
+          },
+          { timeout: 7000, enableHighAccuracy: false, maximumAge: 300000 }
+        );
+      }
+    } catch {}
+
+    // 2. Notification permission if supported
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    } catch {}
   }
 
   /**
@@ -173,21 +217,25 @@ class AndroidSystemService {
    */
   public async probeLocalGateway(): Promise<string | null> {
     const commonGateways = ['192.168.1.1', '192.168.0.1', '192.168.31.1', '192.168.8.1', '192.168.100.1', '10.0.0.1'];
-    for (const gw of commonGateways) {
+    
+    // Test gateways concurrently for fast response (< 500ms total)
+    const probe = async (gw: string): Promise<string | null> => {
       try {
         const start = performance.now();
         await fetch(`http://${gw}/favicon.ico?_t=${Date.now()}`, {
           method: 'HEAD',
           mode: 'no-cors',
-          signal: AbortSignal.timeout(600),
+          signal: AbortSignal.timeout(500),
         });
         const elapsed = performance.now() - start;
-        if (elapsed < 500) {
-          return gw;
-        }
+        if (elapsed < 480) return gw;
       } catch {}
-    }
-    return null;
+      return null;
+    };
+
+    const results = await Promise.all(commonGateways.map(gw => probe(gw)));
+    const found = results.find(gw => gw !== null);
+    return found || null;
   }
 
   /**
@@ -215,6 +263,15 @@ class AndroidSystemService {
   public launchIntent(intentAction: string): void {
     const intentUrl = this.getIntentUrl(intentAction);
     const fallbackWirelessUrl = `intent:#Intent;action=android.settings.WIRELESS_SETTINGS;category=android.intent.category.DEFAULT;package=com.android.settings;end`;
+
+    // Notify registered UI dialogs so the user gets immediate feedback and 1-tap guidance
+    if (intentAction.includes('WIFI')) {
+      this.notifySettingsRequested('wifi');
+    } else if (intentAction.includes('VPN')) {
+      this.notifySettingsRequested('vpn');
+    } else if (intentAction.includes('LOCATION')) {
+      this.notifySettingsRequested('location');
+    }
 
     // 1. If running natively inside Capacitor APK
     if (Capacitor.isNativePlatform()) {

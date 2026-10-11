@@ -253,31 +253,21 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
             </ul>
           </div>
 
-          {/* Functional System Buttons */}
+          {/* Functional System Buttons (No permission request buttons) */}
           <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-md mx-auto pt-1">
-            <button
-              onClick={() => {
-                androidSystem.requestLocationPermission().then(() => {
-                  wifiScanner.triggerScan();
-                });
-              }}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer active:scale-95"
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Запросить разрешение (Геолокация)</span>
-            </button>
-
-            <button
+            <a
+              href={androidSystem.getWifiSettingsIntentUrl()}
               onClick={() => {
                 androidSystem.openWifiSettings();
               }}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer active:scale-95"
             >
-              <Settings className="w-4 h-4 text-cyan-400" />
+              <Settings className="w-4 h-4" />
               <span>Настройки Wi-Fi</span>
-            </button>
+            </a>
 
-            <button
+            <a
+              href={androidSystem.getLocationSettingsIntentUrl()}
               onClick={() => {
                 androidSystem.openLocationSettings();
               }}
@@ -285,7 +275,7 @@ export const WifiAnalyzerView: React.FC<WifiAnalyzerViewProps> = ({
             >
               <ExternalLink className="w-4 h-4 text-amber-400" />
               <span>Включить GPS в системе</span>
-            </button>
+            </a>
 
             <button
               onClick={() => {

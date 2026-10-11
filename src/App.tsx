@@ -15,6 +15,8 @@ import { WifiNetwork, SpeedtestResult, WifiBand } from './types/wifi';
 import { fetchIpAndIspInfo } from './services/networkTester';
 import { openRouterWebDirect } from './utils/routerNav';
 
+import { androidSystem } from './services/androidSystem';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('analyzer');
   const [networks, setNetworks] = useState<WifiNetwork[]>([]);
@@ -30,7 +32,12 @@ export default function App() {
   const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
-  // Subscribe to Wi-Fi scanner events
+  // 1. Request all permissions immediately upon launch (Geolocation, Notifications, etc.)
+  useEffect(() => {
+    androidSystem.requestAllStartupPermissions();
+  }, []);
+
+  // 2. Subscribe to Wi-Fi scanner events
   useEffect(() => {
     const unsubscribe = wifiScanner.subscribe(updatedNetworks => {
       setNetworks(updatedNetworks);
@@ -45,6 +52,18 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  // 3. Keep Wi-Fi scanner synchronized with connection state
+  useEffect(() => {
+    if (isWifiConnected) {
+      wifiScanner.populateConnectedWifi({
+        isp: ispName,
+        gatewayIp: '192.168.1.1',
+      });
+    } else {
+      wifiScanner.clearNetworks();
+    }
+  }, [isWifiConnected, ispName]);
 
   // Direct router opening without intermediate windows: opens browser at default gateway
   const handleOpenRouter = (_band?: WifiBand | React.MouseEvent) => {

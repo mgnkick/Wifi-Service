@@ -83,8 +83,9 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
       // 3. Accurate Wi-Fi vs Cellular verification:
       // - If wifiScanner has an active connected network: definitely Wi-Fi
       // - If @capacitor/network reports 'wifi': definitely Wi-Fi
+      // - If probeLocalGateway finds a local router IP: definitely Wi-Fi
       // - If online and type is 'unknown': broadband / Wi-Fi
-      // - Only if type is strictly 'cellular' AND no active Wi-Fi SSID / local IP: cellular
+      // - Only if type is strictly 'cellular' AND no active Wi-Fi SSID AND no reachable local router: cellular
       let wifiConnected = false;
       let isCellularActive = false;
 
@@ -95,9 +96,10 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
         wifiConnected = true;
         isCellularActive = false;
       } else if (type === 'cellular') {
-        // Double-check if local private IP exists before declaring cellular
+        // Probe local router gateway or check if local private IP exists
+        const gateway = await androidSystem.probeLocalGateway();
         const localIp = await androidSystem.getLocalLanIp();
-        if (localIp || hasConnectedWifi) {
+        if (gateway || localIp || hasConnectedWifi) {
           wifiConnected = true;
           isCellularActive = false;
         } else {
@@ -105,7 +107,7 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
           isCellularActive = true;
         }
       } else {
-        // 'unknown' or desktop/broadband default
+        // 'unknown' or desktop/broadband default: online means local network / Wi-Fi is active
         wifiConnected = true;
         isCellularActive = false;
       }
@@ -175,24 +177,28 @@ export const NetworkStatusGuard: React.FC<NetworkStatusGuardProps> = ({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    const unsubSettings = androidSystem.onSettingsRequested(type => {
+      if (type === 'wifi') setShowWifiSettingsModal(true);
+      if (type === 'vpn') setShowVpnSettingsModal(true);
+    });
+
     return () => {
       handler.then(h => h.remove?.());
+      unsubSettings();
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, [checkNetworkStatus, onConnectionStatusChange]);
 
   // Attempt opening Android settings
-  const handleOpenWifiSettings = (e?: React.MouseEvent) => {
-    e?.preventDefault();
-    androidSystem.openWifiSettings();
+  const handleOpenWifiSettings = () => {
     setShowWifiSettingsModal(true);
+    androidSystem.openWifiSettings();
   };
 
-  const handleOpenVpnSettings = (e?: React.MouseEvent) => {
-    e?.preventDefault();
-    androidSystem.openVpnSettings();
+  const handleOpenVpnSettings = () => {
     setShowVpnSettingsModal(true);
+    androidSystem.openVpnSettings();
   };
 
   const handleRefreshAll = () => {
